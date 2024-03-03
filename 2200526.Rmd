@@ -1,0 +1,502 @@
+---
+title: "MA 304 Final Project"
+output: html_document
+
+---
+# Data Visualization Policing Dataset 2016- Dellas, Texas
+
+## Introduction
+
+This project is about a  policing dataset from Dellas, Texas in 2016. The dataset is available in https://www.kaggle.com/datasets/center-for-policing-equity/data-science-for-good.
+
+The dataset consists of 2834 rows and 47 columns. The dataset has duplicate column names. The dataset contains null values. It has also been observed that a few columns which are present in the dataset doesn't contains any value. 
+
+Most of the columns in the dataset contains categorical values. 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#importing libraries
+library('dplyr') 
+library('Amelia')
+library('tidyr')
+library('ggplot2')
+library('tidytext')
+library('tidyverse')
+library('gridExtra')
+library('plotly')
+library('highcharter') 
+library('corrplot') 
+library('leaflet')
+library('mice')
+```
+
+
+
+```{r}
+#Loading the dataset
+data <- read.csv(file.choose(), header=TRUE, stringsAsFactors = TRUE)
+datacopy <- data
+head(data)
+```
+```{r}
+data[data == 'NULL'] <- NA
+data[data == ''] <- NA
+missmap(data, col=c("grey", "brown"), legend=TRUE)
+```
+
+The missingness map shows that there are null values present in the dataset. 
+
+```{r}
+#removing the duplicate column names
+data <- data[-c(1),]
+```
+
+
+```{r}
+#removing the column names which do not have any data
+data <- data[,!(names(data) %in% c('STREET_NUMBER','STREET_NAME','STREET_DIRECTION','STREET_TYPE','LOCATION_FULL_STREET_ADDRESS_OR_INTERSECTION','LOCATION_CITY','LOCATION_STATE','TYPE_OF_FORCE_USED3','TYPE_OF_FORCE_USED4','TYPE_OF_FORCE_USED5','TYPE_OF_FORCE_USED6','TYPE_OF_FORCE_USED7','TYPE_OF_FORCE_USED8','TYPE_OF_FORCE_USED9','TYPE_OF_FORCE_USED10','NUMBER_EC_CYCLES'))]
+
+```
+
+
+
+```{r}
+#removing columns from the dataset which have more than 80% null values
+data <- data %>% select(which(colMeans(is.na(.)) <= 0.8))
+dim(data)
+```
+
+
+
+```{r}
+#convert BEAT to numeric
+data$BEAT <- as.numeric(data$BEAT)
+#convert UOF_Number to numeric
+data$UOF_NUMBER <- as.numeric(data$UOF_NUMBER)
+#convert OFFICER_YEARS_ON_FORCE to numeric
+data$OFFICER_YEARS_ON_FORCE<-as.numeric(data$OFFICER_YEARS_ON_FORCE)
+#convert OFFICER_ID to numeric
+data$OFFICER_ID <- as.numeric(data$OFFICER_ID)
+#convert SUBJECT_ID to numeric
+data$SUBJECT_ID <- as.numeric(data$SUBJECT_ID)
+#convert REPORTING_AREA to numeric
+data$REPORTING_AREA <- as.numeric(data$REPORTING_AREA)
+#convert SECTOR to numeric
+data$SECTOR <- as.numeric(data$SECTOR)
+```
+
+
+
+
+
+
+```{r}
+#converting date to correct format
+data$INCIDENT_DATE <- as.Date(data$INCIDENT_DATE, format = "%m/%d/%Y")
+data$INCIDENT_DATE <- gsub("00","20",data$INCIDENT_DATE)
+data$INCIDENT_DATE <- as.Date(data$INCIDENT_DATE, format = "%Y-%m-%d")
+data$dayname <- weekdays(as.Date(data$INCIDENT_DATE, format = "%m/%d/%y"))
+data$dayname <- ordered(data$dayname, levels=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+data$monthname <- months(as.Date(data$INCIDENT_DATE, format = "%m/%d/%y"))
+data$monthname <- ordered(data$monthname, levels=c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"))
+data$INCIDENT_DATE <- as.Date(data$INCIDENT_DATE)
+data$INCIDENT_MONTH <- months(data$INCIDENT_DATE)
+data$INCIDENT_TIME = format(strptime(data$INCIDENT_TIME, "%I:%M:%S %p"), format="%H:%M:%S")
+data$INCIDENT_TIME = as.POSIXct(data$INCIDENT_TIME, format="%H:%M:%S")
+data$time1h = cut(data$INCIDENT_TIME, breaks="1 hour")
+
+#summarise incident year
+data_year <-  data %>%
+  group_by(INCIDENT_DATE,monthname,dayname) %>%
+  summarize(count = n())
+head(data_year)
+```
+
+
+
+```{r}
+data$INCIDENT_MONTH <- ordered(data$INCIDENT_MONTH, levels=c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"))
+
+
+ggplot(data,aes(x=INCIDENT_MONTH))+geom_bar( fill="blue")+ ggtitle("Month-wise distribution of Incidents")+  theme(plot.title = element_text(hjust = 0.4, size = 15))+
+  xlab("Month") + 
+  ylab("Number of Incidents")
+```
+
+*Figure:1 Number of Incidents - Month-wise distribution*
+
+From the above figure, the month-wise distribution of crime can be observed. Maximum number of incidents took place in March. The number of incidents are high during the initial months of the year. Least number of incidents are observed in December. 
+
+
+```{r}
+data$dayname <- ordered(data$dayname, levels=c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+m <- as.data.frame(table(data$dayname))
+m
+ggplotly(ggplot(m, aes(x=Var1, y=Freq, group=1)) +
+geom_point(color="blue") + geom_line() +
+ggtitle("Frequency of Observations by Day of the Week") +
+xlab("Day of the Week") +
+ylab("Frequency"))
+
+```
+*Figure:2 Number of Incidents - Day-wise distribution*
+
+From Figure 2, it can be observed that maximum number of incidents were recorded during the weekends. The number of incidents were relatively low during the start of every week. It keeps on increasing gradually and was maximum during the end of the week. 
+
+
+```{r}
+incident_Count <- data.frame(table(data$INCIDENT_DATE))
+names(incident_Count) <- c("Date", "Count")
+incident_Count$Date <- as.Date(incident_Count$Date)
+
+# Create a line graph of the incident counts over time
+ggplotly(ggplot(data = incident_Count, aes(x = Date, y = Count)) +
+  geom_line(color = "#0072B2", size = 0.4) +
+  stat_smooth(method = "loess", color = "dark blue", size = 0.6) +
+  labs(x = "Date", y = "Count", title = "Incident Count over Time"))
+```
+
+*Figure:3 Number of Incidents - Time Distribution*
+
+Figure 3 gives a time series plot to show how the number of incidents varies throughout the year. It shows the trend - higher number of incidents during the start of the year 2016, which kept on decreasing after that for the rest of the year.
+
+```{r}
+##################Officer Race
+options(highcharter.theme = hc_theme_smpl(tooltip = list(valueDecimals = 2)))
+officer_Race_Count <- count(data, data$OFFICER_RACE)
+officer_Race_Count
+```
+
+
+
+```{r}
+OFFICER_RACE<- as.factor(data$OFFICER_RACE)
+table(OFFICER_RACE)
+```
+
+*Table 1: Officer Count based on Race*
+
+```{r}
+ggplotly(ggplot(data,aes(x=OFFICER_RACE))+geom_bar(stat="count",width=0.8,fill="dark blue")+theme_minimal())
+```
+
+*Figure :4 Officer Count based on Race*
+
+
+From Figure 4, it can be derived that the maximum number of officers are of the ethnicity white and least number of officers belong to Americal Ind ethnic group. 
+
+```{r}
+######################################Subject Race##############################################
+SUBJECT_RACE<- as.factor(data$SUBJECT_RACE)
+table(SUBJECT_RACE)
+```
+*Table :2 Subject count based on Race*
+
+From the above table it can be seen that maximum number of subjects belong to Black ethnicity. 
+
+```{r}
+ggplotly(ggplot(data,aes(x=SUBJECT_RACE))+geom_bar(stat="count",width=0.8,fill="dark blue")+theme_minimal())
+```
+*Figure :5 Subject count based on Race*
+
+From the above figure it can be seen that the maximum number of subjects are black. 
+
+```{r}
+#########################District with most crime########################
+
+factor_order <- c("D1", "D2", "D3", "D4", "D5","D6", "D7", "D8", "D9", "D10", "D11", "D12", "D13", "D14")
+
+
+ggplot(data, aes(x = factor(LOCATION_DISTRICT, levels=factor_order))) +geom_bar() +labs(x = "District", y = "Crime Count") +ggtitle("Number of Crimes per District") +theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust = 1)) + scale_x_discrete(limits = factor_order)
+```
+
+*Figure :6 Number of crimes per district*
+
+The above figure shows that district D2 and D14 have the highest crime rate. D1 district has the lowest number of incidents.  
+
+```{r}
+#################### Division with Most Crime ########################
+ggplot(data, aes(x = DIVISION)) +
+  geom_bar() +
+  labs(x = "Divisions", y = "Crime Count") +
+  ggtitle("Number of crimes per division") +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1.0, hjust = 1))
+```
+
+*Figure :7 Number of crimes per division*
+
+From Figure 7, it can be observed that the Central division has the highest number of crime recorded and the northwest division has the lowest number of crime recorded. 
+
+
+```{r}
+# create a frequency table of gender
+df <- sort(table(data$SUBJECT_GENDER), decreasing = TRUE)
+
+gender <- as.data.frame(df)
+total_subjects <- sum(gender$Freq)
+
+# calculate the percentage of subjects by gender
+gender$Percentage <- round((gender$Freq / total_subjects) * 100, 2)
+
+# rename the columns of the data frame
+names(gender) <- c("Gender", "Frequency", "Percentage")
+gender <- subset(gender, !(Gender %in% c("NULL", "CitSex", "Unknown")))
+
+
+# create a pie chart using plot_ly()
+library(plotly)
+p <- plot_ly(gender, labels = ~Gender, values = ~Percentage, type = "pie", hole = 0.2)
+p <- layout(p, title = "Gender Distribution of Subjects")
+p
+```
+
+*Figure :8 Gender of Subjects*
+
+From Figure 8, it can be said that majority of the subjects are Male ( 81.5%). 
+
+```{r}
+# create a frequency table of gender
+d <- sort(table(data$OFFICER_GENDER), decreasing = TRUE)
+
+gender <- as.data.frame(d)
+total_subjects <- sum(gender$Freq)
+
+# calculate the percentage of subjects by gender
+gender$Percentage <- round((gender$Freq / total_subjects) * 100, 2)
+
+# rename the columns of the data frame
+names(gender) <- c("Gender", "Frequency", "Percentage")
+gender <- subset(gender, !(Gender %in% c("NULL", "CitSex","OffSex")))
+
+# create a pie chart using plot_ly()
+library(plotly)
+p <- plot_ly(gender, labels = ~Gender, values = ~Percentage, type = "pie", hole = 0.2)
+p <- layout(p, title = "Gender Distribution of Officers")
+p
+```
+
+*Figure :8 Gender of Officers*
+
+From the above pie plot, it can be seen that majority of the officers are Male(89.9%).
+
+
+
+
+```{r, echo=FALSE,warning=FALSE}
+ggplotly(ggplot(data, aes(x = OFFICER_GENDER, y = OFFICER_YEARS_ON_FORCE, fill = OFFICER_GENDER)) +
+  geom_boxplot()+ scale_fill_manual(values = c("pink", "skyblue")) +
+  ggtitle(label = "Number of officers based on Gender"))
+
+```
+*Figure :9 Boxplot of Officer Gender and Number of years in service*
+
+
+
+```{r,echo=FALSE,warning=FALSE}
+data %>%
+  count(REASON_FOR_FORCE) %>%
+  ggplot(aes(x = reorder(REASON_FOR_FORCE, n),y = n)) + 
+  geom_col(fill="blue") + 
+  labs(x = "REASON_FOR_FORCE",
+       y = "Count",
+       title = "Reason for Force in Dallas in 2016") +
+  coord_flip() +
+  theme_minimal()
+```
+
+*Figure :10 Reason of Force*
+
+The above plot shows that in maximum cases, force was applied for arresting. 
+
+
+```{r}
+counts <- data %>%
+  count(SUBJECT_WAS_ARRESTED) %>%
+  mutate(percentage = n/sum(n)*100)
+
+# Create the plot
+p <- ggplot(counts, aes(x = SUBJECT_WAS_ARRESTED, y = percentage, fill = SUBJECT_WAS_ARRESTED)) +
+  geom_col() +
+  labs(x = "Subject arrest data", y = "Percentage (%)") +
+  theme_minimal()+
+  geom_text(aes(label = paste0(round(percentage, 1), "%"), y = percentage + 2), 
+            position = position_stack(vjust = 0.5))
+
+# Print the plot
+print(p)
+```
+
+*Figure :11 Whether Subject was arrested or not*
+
+From Figure 11, it is evident that for 85.9% of times, the subject was arrested. Only during 14.1% of time, subject was not arrested. 
+
+
+```{r}
+data %>%
+  count(SUBJECT_DESCRIPTION) %>%
+  ggplot(aes(x = reorder(SUBJECT_DESCRIPTION, n),y = n)) + 
+  geom_col(fill="blue") + 
+  labs(x = "SUBJECT_OFFENSE",
+       y = "Count",
+       title = "Subject condition during incident") +
+  coord_flip() +
+  theme_minimal()
+```
+
+*Figure :12 Subject condition during incident*
+
+Figure 12 shows that in majority of cases the subject was mentally unstable during the incident. For the subjects who were not mentally unstable, it can be seen that influence of alcohol and drugs was prominent. The number of subjects who were suspected to carry weapons or fire arms were less. 
+
+
+```{r, echo=FALSE,warning=FALSE}
+num_data <- data[, sapply(data, is.numeric)]
+corr_matrix <- cor(num_data, use = "pairwise.complete.obs")
+
+par(mar = c(5,5,2,2)) # set plot margins
+corrplot(corr_matrix, method = "color", tl.col = "black", addCoef.col = "black", tl.srt = 45, tl.cex = 0.7, diag = TRUE, number.cex = 0.7)
+```
+
+*Figure :13 Correlation Plot*
+
+In Figure 13, it can be observed that BEAT and Sector are perfectly correlated. There is also some correlation between Reporting Area and BEAT. 
+
+```{r}
+ggplotly(ggplot(data, aes(x = OFFICER_YEARS_ON_FORCE, fill = OFFICER_GENDER)) + 
+  geom_density(alpha = 0.8) +
+  labs(x = "Years on Force", y = "Density") +
+  facet_wrap(~ OFFICER_RACE, nrow = 2))
+```
+
+*Figure :14 Density Plot for Officer Year on Force and Officer's Gender and Race*
+
+From Figure 14, it can be derived that both male and female officers from different races stayed for a longer period in forces. 
+
+```{r}
+d <- sort(table(data$TYPE_OF_FORCE_USED1), decreasing = TRUE)[1:10]
+crime <- as.data.frame(d)
+
+ggplotly(ggplot(crime, aes(x = Var1, y = Freq)) +
+  geom_bar(stat = 'identity', fill = 'darkblue') +
+  labs(title = 'Top 10 Force Used', x = 'TYPE_OF_FORCE_USED', y = 'Frequency') +
+  theme_minimal()+ theme(axis.text.x = element_text(angle = 45, vjust = 1.0, hjust=1)))
+```
+
+*Figure :15 Top 10 Force Used*
+
+From the above Figure 15, it can be seen that the Verbal Command is used for most of the time by the Officers against the Subjects. The next common force used is pointing weapon at the suspect.
+
+
+```{r}
+data$LOCATION_LATITUDE <- as.numeric(as.character(data$LOCATION_LATITUDE))
+data$LOCATION_LONGITUDE <- as.numeric(as.character(data$LOCATION_LONGITUDE))
+```
+
+
+
+```{r}
+leaflet() %>%
+  addTiles() %>%
+  addCircleMarkers(
+    data = data[data$SUBJECT_RACE == "Black",],
+    lng = ~LOCATION_LONGITUDE,
+    lat = ~LOCATION_LATITUDE,
+    group = "Black",
+    radius = 2,
+    fillColor = "red",
+    fillOpacity = 0.8
+  ) %>%
+  addCircleMarkers(
+    data = data[data$SUBJECT_RACE == "White",],
+    lng = ~LOCATION_LONGITUDE,
+    lat = ~LOCATION_LATITUDE,
+    group = "White",
+    radius = 2,
+    fillColor = "black",
+    fillOpacity = 0.8
+  ) %>%
+  addCircleMarkers(
+    data = data[data$SUBJECT_GENDER == "Male",],
+    lng = ~LOCATION_LONGITUDE,
+    lat = ~LOCATION_LATITUDE,
+    group = "Male",
+    radius = 2,
+    fillColor = "black",
+    fillOpacity = 0.8
+  ) %>%
+  addCircleMarkers(
+    data = data[data$SUBJECT_GENDER == "Female",],
+    lng = ~LOCATION_LONGITUDE,
+    lat = ~LOCATION_LATITUDE,
+    group = "Female",
+    radius = 2,
+    fillColor = "black",
+    fillOpacity = 0.8
+  ) %>%
+  addLayersControl(
+    overlayGroups = c("Black", "White","Male","Female"), # add both groups to the overlay list
+    options = layersControlOptions(collapsed = FALSE)
+  )
+```
+
+*Figure 16: Map to show the subject data in Dallas*
+
+```{r}
+leaflet() %>%
+  addTiles() %>%
+  addCircleMarkers(
+    data = data[data$REASON_FOR_FORCE == "Arrest",],
+    lng = ~LOCATION_LONGITUDE,
+    lat = ~LOCATION_LATITUDE,
+    group = "Arrest",
+    radius = 2,
+    fillColor = "red",
+    fillOpacity = 0.8
+  ) %>%
+  addCircleMarkers(
+    data = data[data$REASON_FOR_FORCE == "Weapon Display",],
+    lng = ~LOCATION_LONGITUDE,
+    lat = ~LOCATION_LATITUDE,
+    group = "Weapon Display",
+    radius = 2,
+    fillColor = "black",
+    fillOpacity = 0.8
+  ) %>%
+  addCircleMarkers(
+    data = data[data$REASON_FOR_FORCE == "Active Aggression",],
+    lng = ~LOCATION_LONGITUDE,
+    lat = ~LOCATION_LATITUDE,
+    group = "Active Aggression",
+    radius = 2,
+    fillColor = "black",
+    fillOpacity = 0.8
+  ) %>%
+  addCircleMarkers(
+    data = data[data$REASON_FOR_FORCE == "Assault to Other Person",],
+    lng = ~LOCATION_LONGITUDE,
+    lat = ~LOCATION_LATITUDE,
+    group = "Assault to Other Person",
+    radius = 2,
+    fillColor = "black",
+    fillOpacity = 0.8
+  ) %>%
+  addLayersControl(
+    overlayGroups = c("Arrest", "Weapon Display","Active Aggression","Assault to Other Person"), # add both groups to the overlay list
+    options = layersControlOptions(collapsed = FALSE)
+  )
+```
+
+
+*Figure 17: Map to show the type of incident in Dallas*
+
+
+## Conclusion
+
+Based on the analysis it can be concluded that majority of officers are white and majority of subjects are black. Most of the crimes are committed during the end of the week and during the initial quater of the year. Also most of the crimes are committed in D2 ans D14 districts and in Central Division. In most of the cases, the subject was arrested.The officers mainly used verbal commands. In some case the officers also pointed gun. It has been found that in majority cases, the  subject was mentally unstable or under the influence of alcohol or drugs at the time of the incident. Also we can get some information about the police department like there are very less female officers as compared to the male officers.
+ 
+
+### References:
+
+- https://medium.com/swlh/step-by-step-data-visualization-guideline-with-plotly-in-r-fbd212640de2
+- https://data.library.virginia.edu/data-scientist-as-cartographer-an-introduction-to-making-interactive-maps-in-r-with-leaflet/
+
